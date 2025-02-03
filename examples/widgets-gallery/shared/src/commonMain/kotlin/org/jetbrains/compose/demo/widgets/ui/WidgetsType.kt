@@ -11,7 +11,7 @@ enum class WidgetsType(private val customTitle: String? = null) {
     TOGGLES,
     UI_CARDS("UI Cards");
 
-    val readableName: String by lazy {
+    private val readableName: String by lazy {
         name.split("_")
             .map { it.lowercase() }
             .mapIndexed { i, it ->
@@ -24,9 +24,12 @@ enum class WidgetsType(private val customTitle: String? = null) {
     val title: String
         get() = customTitle ?: readableName
 
+    val testTag: String
+        get() = name.lowercase()
+
     companion object {
         val sortedValues: List<WidgetsType> by lazy {
-            values().sortedBy { it.name }
+            entries.sortedBy { it.name }
         }
     }
 }

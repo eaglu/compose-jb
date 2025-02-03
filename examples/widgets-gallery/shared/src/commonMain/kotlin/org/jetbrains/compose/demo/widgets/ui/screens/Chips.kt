@@ -2,7 +2,11 @@ package org.jetbrains.compose.demo.widgets.ui.screens
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.Button
@@ -13,44 +17,64 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import org.jetbrains.compose.demo.widgets.platform.Res
-import org.jetbrains.compose.resources.painterResource
+import org.jetbrains.compose.demo.widgets.ui.WidgetsType
 import org.jetbrains.compose.demo.widgets.ui.utils.SubtitleText
+import org.jetbrains.compose.resources.DrawableResource
 import org.jetbrains.compose.resources.ExperimentalResourceApi
+import org.jetbrains.compose.resources.painterResource
+import widgets_gallery.shared.generated.resources.Res
+import widgets_gallery.shared.generated.resources.p2
+import widgets_gallery.shared.generated.resources.p6
 
+@OptIn(ExperimentalResourceApi::class)
 @Composable
-internal fun Chips() {
-    // There is no in-built chips but you can make yours like below
-    SubtitleText(subtitle = "Custom chips with surface")
-    Column(modifier = Modifier.padding(8.dp)) {
-        YoutubeChip(selected = true, text = "Chip", modifier = Modifier.padding(horizontal = 8.dp))
-        Spacer(modifier = Modifier.padding(8.dp))
-        YoutubeChip(
-            selected = false,
-            text = "Inactive",
-            modifier = Modifier.padding(horizontal = 8.dp)
-        )
-        Spacer(modifier = Modifier.padding(8.dp))
-        CustomImageChip(text = "custom", imageId = Res.drawable.p2, selected = true)
-        Spacer(modifier = Modifier.padding(8.dp))
-        CustomImageChip(text = "custom2", imageId = Res.drawable.p6, selected = false)
-    }
-    SubtitleText(subtitle = "Buttons with circle clipping.")
-    Column(modifier = Modifier.padding(8.dp)) {
-        Button(
-            onClick = {},
-            modifier = Modifier.padding(8.dp).clip(CircleShape)
-        ) {
-            Text(text = "Chip button")
+fun Chips() {
+    Column(Modifier.testTag(WidgetsType.CHIPS.testTag)) {
+        // There is no in-built chips but you can make yours like below
+        SubtitleText(subtitle = "Custom chips with surface")
+        Column(modifier = Modifier.padding(8.dp)) {
+            YoutubeChip(
+                selected = true,
+                text = "Chip",
+                modifier = Modifier.padding(horizontal = 8.dp)
+            )
+            Spacer(modifier = Modifier.padding(8.dp))
+            YoutubeChip(
+                selected = false,
+                text = "Inactive",
+                modifier = Modifier.padding(horizontal = 8.dp)
+            )
+            Spacer(modifier = Modifier.padding(8.dp))
+            CustomImageChip(
+                text = "custom",
+                imageId = Res.drawable.p2,
+                selected = true
+            )
+            Spacer(modifier = Modifier.padding(8.dp))
+            CustomImageChip(
+                text = "custom2",
+                imageId = Res.drawable.p6,
+                selected = false
+            )
         }
-        Button(
-            onClick = {},
-            enabled = false,
-            modifier = Modifier.padding(8.dp).clip(CircleShape)
-        ) {
-            Text(text = "Disabled chip")
+        SubtitleText(subtitle = "Buttons with circle clipping.")
+        Column(modifier = Modifier.padding(8.dp)) {
+            Button(
+                onClick = {},
+                modifier = Modifier.padding(8.dp).clip(CircleShape)
+            ) {
+                Text(text = "Chip button")
+            }
+            Button(
+                onClick = {},
+                enabled = false,
+                modifier = Modifier.padding(8.dp).clip(CircleShape)
+            ) {
+                Text(text = "Disabled chip")
+            }
         }
     }
 }
@@ -62,7 +86,7 @@ internal fun Chips() {
 @Composable
 private fun CustomImageChip(
     text: String,
-    imageId: String,
+    imageId: DrawableResource,
     selected: Boolean,
     modifier: Modifier = Modifier
 ) {

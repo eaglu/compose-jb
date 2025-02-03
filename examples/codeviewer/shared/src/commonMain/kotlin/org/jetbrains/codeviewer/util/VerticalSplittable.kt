@@ -7,6 +7,7 @@ import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.width
+import androidx.compose.material.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -19,10 +20,9 @@ import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import org.jetbrains.codeviewer.platform.cursorForHorizontalResize
-import org.jetbrains.codeviewer.ui.common.AppTheme
 
 @Composable
-internal fun VerticalSplittable(
+fun VerticalSplittable(
     modifier: Modifier,
     splitterState: SplitterState,
     onResize: (delta: Dp) -> Unit,
@@ -57,10 +57,10 @@ class SplitterState {
 }
 
 @Composable
-internal fun VerticalSplitter(
+fun VerticalSplitter(
     splitterState: SplitterState,
     onResize: (delta: Dp) -> Unit,
-    color: Color = AppTheme.colors.backgroundDark
+    color: Color = MaterialTheme.colors.background
 ) = Box {
     val density = LocalDensity.current
     Box(

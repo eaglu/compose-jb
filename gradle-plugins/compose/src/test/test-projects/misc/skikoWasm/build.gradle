@@ -1,16 +1,15 @@
-import org.jetbrains.compose.desktop.application.dsl.TargetFormat
-
 plugins {
     id "org.jetbrains.kotlin.multiplatform"
+    id "org.jetbrains.kotlin.plugin.compose"
     id "org.jetbrains.compose"
-}
-
-repositories {
-    jetbrainsCompose()
 }
 
 kotlin {
     js(IR) {
+        browser()
+        binaries.executable()
+    }
+    wasm {
         browser()
         binaries.executable()
     }
@@ -26,6 +25,9 @@ kotlin {
     }
 }
 
-compose.experimental {
-    web.application {}
+// test for https://github.com/JetBrains/compose-multiplatform/issues/3169
+afterEvaluate {
+    afterEvaluate {
+        dependencies.add(kotlin.targets.js.compilations.main.compileDependencyConfigurationName, "org.jetbrains.kotlin:kotlin-stdlib")
+    }
 }

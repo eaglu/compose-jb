@@ -6,8 +6,15 @@
 package org.jetbrains.compose.experimental.internal
 
 import org.gradle.api.Project
+import org.jetbrains.compose.internal.utils.findLocalOrGlobalProperty
 import org.jetbrains.kotlin.gradle.dsl.KotlinMultiplatformExtension
 import org.jetbrains.kotlin.gradle.plugin.KotlinTarget
+
+internal fun Project.configureExperimentalTargetsFlagsCheck(mppExt: KotlinMultiplatformExtension) {
+    gradle.taskGraph.whenReady {
+        checkExperimentalTargetsWithSkikoIsEnabled(project, mppExt)
+    }
+}
 
 private const val SKIKO_ARTIFACT_PREFIX = "org.jetbrains.skiko:skiko"
 
@@ -19,7 +26,6 @@ private class TargetType(
 private val TargetType.gradlePropertyName get() = "org.jetbrains.compose.experimental.$id.enabled"
 
 private val EXPERIMENTAL_TARGETS: Set<TargetType> = setOf(
-    TargetType("uikit", presets = listOf("iosSimulatorArm64", "iosArm64", "iosX64")),
     TargetType("macos", presets = listOf("macosX64", "macosArm64")),
     TargetType("jscanvas", presets = listOf("jsIr", "js")),
 )
@@ -29,9 +35,11 @@ private sealed interface CheckResult {
     class Fail(val target: TargetType) : CheckResult
 }
 
-internal fun Project.checkExperimentalTargetsWithSkikoIsEnabled() = afterEvaluate {
-    val mppExt = project.extensions.findByType(KotlinMultiplatformExtension::class.java) ?: return@afterEvaluate
-    val failedResults = mppExt.targets.map { checkTarget(it) }
+private fun checkExperimentalTargetsWithSkikoIsEnabled(
+    project: Project,
+    mppExt: KotlinMultiplatformExtension,
+) {
+    val failedResults = mppExt.targets.map { checkTarget(project, it) }
         .filterIsInstance<CheckResult.Fail>()
         .distinctBy { it.target }
 
@@ -50,7 +58,7 @@ internal fun Project.checkExperimentalTargetsWithSkikoIsEnabled() = afterEvaluat
     }
 }
 
-private fun Project.checkTarget(target: KotlinTarget): CheckResult {
+private fun checkTarget(project: Project, target: KotlinTarget): CheckResult {
     val presetName = target.preset?.name ?: return CheckResult.Success
 
     val targetType = EXPERIMENTAL_TARGETS.firstOrNull {
@@ -61,13 +69,14 @@ private fun Project.checkTarget(target: KotlinTarget): CheckResult {
         compilation.compileDependencyConfigurationName
     }
 
-    configurations.forEach { configuration ->
+    project.configurations.forEach { configuration ->
         if (configuration.isCanBeResolved && configuration.name in targetConfigurationNames) {
             val containsSkikoArtifact = configuration.resolvedConfiguration.resolvedArtifacts.any {
                 it.id.displayName.contains(SKIKO_ARTIFACT_PREFIX)
             }
             if (containsSkikoArtifact) {
-                if (project.findProperty(targetType.gradlePropertyName) != "true") {
+                val targetIsDisabled = project.findLocalOrGlobalProperty(targetType.gradlePropertyName).map { it != "true" }
+                if (targetIsDisabled.get()) {
                     return CheckResult.Fail(targetType)
                 }
             }

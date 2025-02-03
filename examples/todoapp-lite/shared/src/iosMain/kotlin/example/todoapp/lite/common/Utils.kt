@@ -1,8 +1,6 @@
 package example.todoapp.lite.common
 
-
 import androidx.compose.foundation.lazy.LazyListState
-
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.Dp
@@ -23,10 +21,3 @@ internal actual fun VerticalScrollbar(
 ) {
     // no-op
 }
-
-@Composable
-internal actual fun Dialog(
-    title: String,
-    onCloseRequest: () -> Unit,
-    content: @Composable () -> Unit
-) = Unit

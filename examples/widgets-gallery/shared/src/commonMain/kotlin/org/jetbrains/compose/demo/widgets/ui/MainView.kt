@@ -20,6 +20,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.semantics
@@ -36,7 +37,7 @@ import org.jetbrains.compose.demo.widgets.ui.utils.VerticalSplittable
 import org.jetbrains.compose.demo.widgets.ui.utils.withoutWidthConstraints
 
 @Composable
-internal fun MainView() {
+fun MainView() {
     WidgetGalleryTheme {
         Surface {
             WidgetsPanel()
@@ -45,7 +46,7 @@ internal fun MainView() {
 }
 
 @Composable
-internal fun WidgetsPanel() {
+fun WidgetsPanel() {
     val widgetsTypeState = rememberSaveable { mutableStateOf(WidgetsType.sortedValues.first()) }
     val panelState = remember { PanelState() }
 
@@ -115,6 +116,10 @@ private fun WidgetsListView(widgetsTypeState: MutableState<WidgetsType>) {
 
 }
 
+val WidgetsType.listItemTestTag: String
+    get() = "${testTag}_list_item"
+
+
 @Composable
 private fun WidgetsListItemViewImpl(
     widgetsType: WidgetsType,
@@ -133,6 +138,7 @@ private fun WidgetsListItemViewImpl(
             }
             .height(height)
             .padding(start = 16.dp)
+            .testTag(widgetsType.listItemTestTag)
     ) {
         val inFocusInteractionSource = remember { MutableInteractionSource() }
         val inFocus by inFocusInteractionSource.collectIsHoveredAsState()
@@ -145,7 +151,7 @@ private fun WidgetsListItemViewImpl(
         }
 
         Text(
-            text = widgetsType.readableName,
+            text = widgetsType.title,
             color = textColor,
             modifier = Modifier
                 .align(Alignment.CenterVertically)

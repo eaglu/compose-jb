@@ -12,29 +12,46 @@ import org.jetbrains.compose.internal.utils.currentArch
 import org.jetbrains.compose.internal.utils.currentOS
 import org.jetbrains.compose.internal.utils.currentTarget
 import org.jetbrains.compose.internal.utils.uppercaseFirstChar
-import org.jetbrains.compose.test.utils.*
-
-import java.io.File
-import java.util.*
+import org.jetbrains.compose.test.utils.GradlePluginTestBase
+import org.jetbrains.compose.test.utils.JDK_11_BYTECODE_VERSION
+import org.jetbrains.compose.test.utils.ProcessRunResult
+import org.jetbrains.compose.test.utils.TestProject
+import org.jetbrains.compose.test.utils.assertEqualTextFiles
+import org.jetbrains.compose.test.utils.assertNotEqualTextFiles
+import org.jetbrains.compose.test.utils.checkContains
+import org.jetbrains.compose.test.utils.checkExists
+import org.jetbrains.compose.test.utils.checkNotExists
+import org.jetbrains.compose.test.utils.checks
+import org.jetbrains.compose.test.utils.modify
+import org.jetbrains.compose.test.utils.readClassFileVersion
+import org.jetbrains.compose.test.utils.runProcess
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assumptions
 import org.junit.jupiter.api.Disabled
 import org.junit.jupiter.api.Test
+import java.io.File
+import java.util.*
 import java.util.jar.JarFile
 
 class DesktopApplicationTest : GradlePluginTestBase() {
     @Test
-    fun smokeTestRunTask() = with(testProject(TestProjects.jvm)) {
+    fun smokeTestRunTask() = with(testProject("application/jvm")) {
         file("build.gradle").modify {
             it + """
                 afterEvaluate {
                     tasks.getByName("run").doFirst {
                         throw new StopExecutionException("Skip run task")
                     }
+                    tasks.getByName("runRelease").doFirst {
+                        throw new StopExecutionException("Skip runRelease task")
+                    }
                     
                     tasks.getByName("runDistributable").doFirst {
                         throw new StopExecutionException("Skip runDistributable task")
+                    }
+                    tasks.getByName("runReleaseDistributable").doFirst {
+                        throw new StopExecutionException("Skip runReleaseDistributable task")
                     }
                 }
             """.trimIndent()
@@ -42,80 +59,44 @@ class DesktopApplicationTest : GradlePluginTestBase() {
         gradle("run").checks {
             check.taskSuccessful(":run")
         }
+        gradle("runRelease").checks {
+            check.taskSuccessful(":runRelease")
+        }
         gradle("runDistributable").checks {
             check.taskSuccessful(":createDistributable")
             check.taskSuccessful(":runDistributable")
         }
+        gradle("runReleaseDistributable").checks {
+            check.taskSuccessful(":createReleaseDistributable")
+            check.taskSuccessful(":runReleaseDistributable")
+        }
     }
 
     @Test
-    fun testRunMpp() = with(testProject(TestProjects.mpp)) {
+    fun testRunMpp() = with(testProject("application/mpp")) {
         val logLine = "Kotlin MPP app is running!"
         gradle("run").checks {
             check.taskSuccessful(":run")
             check.logContains(logLine)
         }
+        gradle("runRelease").checks {
+            check.taskSuccessful(":runRelease")
+            check.logContains(logLine)
+        }
         gradle("runDistributable").checks {
             check.taskSuccessful(":createDistributable")
             check.taskSuccessful(":runDistributable")
             check.logContains(logLine)
         }
-    }
-
-    /**
-     * Test the version of Compose Compiler published by Google.
-     * See https://developer.android.com/jetpack/androidx/releases/compose-kotlin
-     */
-    @Test
-    fun testAndroidxCompiler() = testProject(
-        TestProjects.customCompiler, defaultTestEnvironment.copy(
-            kotlinVersion = "1.8.0",
-            composeCompilerPlugin = "\"androidx.compose.compiler:compiler:1.4.0\""
-        )
-    ).checkCustomComposeCompiler()
-
-    @Test
-    fun testSettingLatestCompiler() = testProject(
-        TestProjects.customCompiler, defaultTestEnvironment.copy(
-            kotlinVersion = "1.7.20",
-            composeCompilerPlugin = "dependencies.compiler.forKotlin(\"1.7.20\")",
-        )
-    ).checkCustomComposeCompiler()
-
-    @Test
-    fun testSettingAutoCompiler() = testProject(
-        TestProjects.customCompiler, defaultTestEnvironment.copy(
-            kotlinVersion = "1.7.10",
-            composeCompilerPlugin = "dependencies.compiler.auto",
-        )
-    ).checkCustomComposeCompiler()
-
-    @Test
-    fun testKotlinCheckDisabled() = testProject(
-        TestProjects.customCompilerArgs, defaultTestEnvironment.copy(
-            kotlinVersion = "1.7.21",
-            composeCompilerPlugin = "dependencies.compiler.forKotlin(\"1.7.20\")",
-            composeCompilerArgs = "\"suppressKotlinVersionCompatibilityCheck=1.7.21\""
-        )
-    ).checkCustomComposeCompiler(checkKJS = true)
-
-    private fun TestProject.checkCustomComposeCompiler(checkKJS: Boolean = false) {
-        gradle(":runDistributable").checks {
-            val actualMainImage = file("main-image.actual.png")
-            val expectedMainImage = file("main-image.expected.png")
-            assert(actualMainImage.readBytes().contentEquals(expectedMainImage.readBytes())) {
-                "The actual image '$actualMainImage' does not match the expected image '$expectedMainImage'"
-            }
-        }
-        if (checkKJS) {
-            gradle(":jsBrowserProductionWebpack").checks {
-                check.taskSuccessful(":jsBrowserProductionWebpack")
-            }
+        gradle("runReleaseDistributable").checks {
+            check.taskSuccessful(":createReleaseDistributable")
+            check.taskSuccessful(":runReleaseDistributable")
+            check.logContains(logLine)
         }
     }
 
     @Test
-    fun kotlinDsl(): Unit = with(testProject(TestProjects.jvmKotlinDsl)) {
+    fun kotlinDsl(): Unit = with(testProject("application/jvmKotlinDsl")) {
         gradle(":packageDistributionForCurrentOS", "--dry-run")
         gradle(":packageReleaseDistributionForCurrentOS", "--dry-run")
     }
@@ -123,7 +104,7 @@ class DesktopApplicationTest : GradlePluginTestBase() {
     @Test
     fun proguard(): Unit = with(
         testProject(
-            TestProjects.proguard,
+            "application/proguard",
             testEnvironment = defaultTestEnvironment.copy(composeVerbose = false))
     ) {
         val enableObfuscation = """
@@ -166,7 +147,39 @@ class DesktopApplicationTest : GradlePluginTestBase() {
     }
 
     @Test
-    fun gradleBuildCache() = with(testProject(TestProjects.jvm)) {
+    fun joinOutputJarsJvm() = with(testProject("application/jvm")) {
+        joinOutputJars()
+    }
+
+    @Test
+    fun joinOutputJarsMpp() = with(testProject("application/mpp")) {
+        joinOutputJars()
+    }
+
+    private fun TestProject.joinOutputJars() {
+        enableJoinOutputJars()
+        gradle(":createReleaseDistributable").checks {
+            check.taskSuccessful(":createReleaseDistributable")
+
+            val distributionPathPattern = "The distribution is written to (.*)".toRegex()
+            val m = distributionPathPattern.find(check.log)
+            val distributionDir = m?.groupValues?.get(1)?.let(::File)
+            if (distributionDir == null || !distributionDir.exists()) {
+                error("Invalid distribution path: $distributionDir")
+            }
+            val appDirSubPath = when (currentOS) {
+                OS.Linux -> "TestPackage/lib/app"
+                OS.Windows -> "TestPackage/app"
+                OS.MacOS -> "TestPackage.app/Contents/app"
+            }
+            val appDir = distributionDir.resolve(appDirSubPath)
+            val jarsCount = appDir.listFiles()?.count { it.name.endsWith(".jar", ignoreCase = true) } ?: 0
+            assert(jarsCount == 1)
+        }
+    }
+
+    @Test
+    fun gradleBuildCache() = with(testProject("application/jvm")) {
         modifyGradleProperties {
             setProperty("org.gradle.caching", "true")
         }
@@ -192,12 +205,12 @@ class DesktopApplicationTest : GradlePluginTestBase() {
     }
 
     @Test
-    fun packageJvm() = with(testProject(TestProjects.jvm)) {
+    fun packageJvm() = with(testProject("application/jvm")) {
         testPackageJvmDistributions()
     }
 
     @Test
-    fun packageMpp() = with(testProject(TestProjects.mpp)) {
+    fun packageMpp() = with(testProject("application/mpp")) {
         testPackageJvmDistributions()
     }
 
@@ -246,21 +259,12 @@ class DesktopApplicationTest : GradlePluginTestBase() {
     }
 
     @Test
-    fun testJdk15() = with(customJdkProject(15)) {
-        testPackageJvmDistributions()
-    }
-    @Test
-    fun testJdk18() = with(customJdkProject(18)) {
-        testPackageJvmDistributions()
-    }
-
-    @Test
     fun testJdk19() = with(customJdkProject(19)) {
         testPackageJvmDistributions()
     }
 
     private fun customJdkProject(javaVersion: Int): TestProject =
-        testProject(TestProjects.jvm).apply {
+        testProject("application/jvm").apply {
             appendText("build.gradle") {
                 """
                     compose.desktop.application {
@@ -273,20 +277,40 @@ class DesktopApplicationTest : GradlePluginTestBase() {
         }
 
     @Test
-    fun packageUberJarForCurrentOSJvm() = with(testProject(TestProjects.jvm)) {
-        testPackageUberJarForCurrentOS()
+    fun packageUberJarForCurrentOSJvm() = with(testProject("application/jvm")) {
+        testPackageUberJarForCurrentOS(false)
     }
 
     @Test
-    fun packageUberJarForCurrentOSMpp() = with(testProject(TestProjects.mpp)) {
-        testPackageUberJarForCurrentOS()
+    fun packageUberJarForCurrentOSMpp() = with(testProject("application/mpp")) {
+        testPackageUberJarForCurrentOS(false)
     }
 
-    private fun TestProject.testPackageUberJarForCurrentOS() {
-        gradle(":packageUberJarForCurrentOS").checks {
-            check.taskSuccessful(":packageUberJarForCurrentOS")
+    @Test
+    fun packageReleaseUberJarForCurrentOSJvm() = with(testProject("application/jvm")) {
+        testPackageUberJarForCurrentOS(true)
+    }
 
-            val resultJarFile = file("build/compose/jars/TestPackage-${currentTarget.id}-1.0.0.jar")
+    @Test
+    fun packageReleaseUberJarForCurrentOSMpp() = with(testProject("application/mpp")) {
+        testPackageUberJarForCurrentOS(true)
+    }
+
+    private fun TestProject.testPackageUberJarForCurrentOS(release: Boolean) {
+        val task = when {
+            release -> ":packageReleaseUberJarForCurrentOS"
+            else -> ":packageUberJarForCurrentOS"
+        }
+
+        val jarFileName = when {
+            release -> "build/compose/jars/TestPackage-${currentTarget.id}-1.0.0-release.jar"
+            else -> "build/compose/jars/TestPackage-${currentTarget.id}-1.0.0.jar"
+        }
+
+        gradle(task).checks {
+            check.taskSuccessful(task)
+
+            val resultJarFile = file(jarFileName)
             resultJarFile.checkExists()
 
             JarFile(resultJarFile).use { jar ->
@@ -301,7 +325,7 @@ class DesktopApplicationTest : GradlePluginTestBase() {
     }
 
     @Test
-    fun testModuleClash() = with(testProject(TestProjects.moduleClashCli)) {
+    fun testModuleClash() = with(testProject("application/moduleClashCli")) {
         gradle(":app:runDistributable").checks {
             check.taskSuccessful(":app:createDistributable")
             check.taskSuccessful(":app:runDistributable")
@@ -311,7 +335,7 @@ class DesktopApplicationTest : GradlePluginTestBase() {
     }
 
     @Test
-    fun testJavaLogger() = with(testProject(TestProjects.javaLogger)) {
+    fun testJavaLogger() = with(testProject("application/javaLogger")) {
         gradle(":runDistributable").checks {
             check.taskSuccessful(":runDistributable")
             check.logContains("Compose Gradle plugin test log warning!")
@@ -328,7 +352,7 @@ class DesktopApplicationTest : GradlePluginTestBase() {
 
         Assumptions.assumeTrue(currentOS == OS.MacOS)
 
-        with(testProject(TestProjects.macOptions)) {
+        with(testProject("application/macOptions")) {
             gradle(":runDistributable").checks {
                 check.taskSuccessful(":runDistributable")
                 check.logContains("Hello, from Mac OS!")
@@ -339,6 +363,15 @@ class DesktopApplicationTest : GradlePluginTestBase() {
                 val expectedInfoPlistNormalized = expectedInfoPlist.readText().normalized()
                 Assert.assertEquals(actualInfoPlistNormalized, expectedInfoPlistNormalized)
             }
+        }
+    }
+
+    @Test
+    fun testMacSignConfiguration() {
+        Assumptions.assumeTrue(currentOS == OS.MacOS)
+
+        with(testProject("application/macSign")) {
+            gradle("--dry-run", ":createDistributable")
         }
     }
 
@@ -370,7 +403,7 @@ class DesktopApplicationTest : GradlePluginTestBase() {
             }
         }
 
-        with(testProject(TestProjects.macSign)) {
+        with(testProject("application/macSign")) {
             val keychain = file("compose.test.keychain")
             val password = "compose.test"
 
@@ -400,7 +433,7 @@ class DesktopApplicationTest : GradlePluginTestBase() {
 
     @Test
     fun testOptionsWithSpaces() {
-        with(testProject(TestProjects.optionsWithSpaces)) {
+        with(testProject("application/optionsWithSpaces")) {
             fun testRunTask(runTask: String) {
                 gradle(runTask).checks {
                     check.taskSuccessful(runTask)
@@ -422,7 +455,7 @@ class DesktopApplicationTest : GradlePluginTestBase() {
 
     @Test
     fun testDefaultArgs() {
-        with(testProject(TestProjects.defaultArgs)) {
+        with(testProject("application/defaultArgs")) {
             fun testRunTask(runTask: String) {
                 gradle(runTask).checks {
                     check.taskSuccessful(runTask)
@@ -441,7 +474,7 @@ class DesktopApplicationTest : GradlePluginTestBase() {
 
     @Test
     fun testDefaultArgsOverride() {
-        with(testProject(TestProjects.defaultArgsOverride)) {
+        with(testProject("application/defaultArgsOverride")) {
             fun testRunTask(runTask: String) {
                 gradle(runTask).checks {
                     check.taskSuccessful(runTask)
@@ -460,7 +493,7 @@ class DesktopApplicationTest : GradlePluginTestBase() {
 
     @Test
     fun testSuggestModules() {
-        with(testProject(TestProjects.jvm)) {
+        with(testProject("application/jvm")) {
             gradle(":suggestRuntimeModules").checks {
                 check.taskSuccessful(":suggestRuntimeModules")
                 check.logContains("Suggested runtime modules to include:")
@@ -470,31 +503,39 @@ class DesktopApplicationTest : GradlePluginTestBase() {
     }
 
     @Test
-    fun testUnpackSkiko() {
-        with(testProject(TestProjects.unpackSkiko)) {
-            gradle(":runDistributable").checks {
-                check.taskSuccessful(":runDistributable")
+    fun testUnpackSkiko() = with(testProject("application/unpackSkiko")) {
+        testUnpackSkiko(":runDistributable")
+    }
 
-                val libraryPathPattern = "Read skiko library path: '(.*)'".toRegex()
-                val m = libraryPathPattern.find(check.log)
-                val skikoDir = m?.groupValues?.get(1)?.let(::File)
-                if (skikoDir == null || !skikoDir.exists()) {
-                    error("Invalid skiko path: $skikoDir")
-                }
-                val filesToFind = when (currentOS) {
-                    OS.Linux -> listOf("libskiko-linux-${currentArch.id}.so")
-                    OS.Windows -> listOf("skiko-windows-${currentArch.id}.dll", "icudtl.dat")
-                    OS.MacOS -> listOf("libskiko-macos-${currentArch.id}.dylib")
-                }
-                for (fileName in filesToFind) {
-                    skikoDir.resolve(fileName).checkExists()
-                }
+    @Test
+    fun testUnpackSkikoFromUberJar() = with(testProject("application/unpackSkiko")) {
+        enableJoinOutputJars()
+        testUnpackSkiko(":runReleaseDistributable")
+    }
+
+    private fun TestProject.testUnpackSkiko(runDistributableTask: String) {
+        gradle(runDistributableTask).checks {
+            check.taskSuccessful(runDistributableTask)
+
+            val libraryPathPattern = "Read skiko library path: '(.*)'".toRegex()
+            val m = libraryPathPattern.find(check.log)
+            val skikoDir = m?.groupValues?.get(1)?.let(::File)
+            if (skikoDir == null || !skikoDir.exists()) {
+                error("Invalid skiko path: $skikoDir")
+            }
+            val filesToFind = when (currentOS) {
+                OS.Linux -> listOf("libskiko-linux-${currentArch.id}.so")
+                OS.Windows -> listOf("skiko-windows-${currentArch.id}.dll", "icudtl.dat")
+                OS.MacOS -> listOf("libskiko-macos-${currentArch.id}.dylib")
+            }
+            for (fileName in filesToFind) {
+                skikoDir.resolve(fileName).checkExists()
             }
         }
     }
 
     @Test
-    fun resources() = with(testProject(TestProjects.resources)) {
+    fun resources() = with(testProject("application/resources")) {
         gradle(":run").checks {
             check.taskSuccessful(":run")
         }
@@ -508,7 +549,7 @@ class DesktopApplicationTest : GradlePluginTestBase() {
     fun testWixUnzip() {
         Assumptions.assumeTrue(currentOS == OS.Windows) { "The test is only relevant for Windows" }
 
-        with(testProject(TestProjects.jvm)) {
+        with(testProject("application/jvm")) {
             gradle(":unzipWix").checks {
                 check.taskSuccessful(":unzipWix")
 
@@ -517,5 +558,18 @@ class DesktopApplicationTest : GradlePluginTestBase() {
                 file("wix311").checkNotExists()
             }
         }
+    }
+
+    private fun TestProject.enableJoinOutputJars() {
+        val enableJoinOutputJars = """
+                    compose.desktop {
+                        application {
+                            buildTypes.release.proguard {
+                                joinOutputJars.set(true)
+                            }
+                        }
+                    }
+                """.trimIndent()
+        file("build.gradle").modify { "$it\n$enableJoinOutputJars" }
     }
 }

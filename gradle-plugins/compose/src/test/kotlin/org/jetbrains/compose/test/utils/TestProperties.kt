@@ -8,20 +8,17 @@ package org.jetbrains.compose.test.utils
 import java.io.File
 
 object TestProperties {
-    val composeCompilerVersion: String
-        get() = notNullSystemProperty("compose.tests.compiler.version")
-
-    val composeCompilerCompatibleKotlinVersion: String
-        get() = notNullSystemProperty("compose.tests.compiler.compatible.kotlin.version")
-
-    val composeJsCompilerCompatibleKotlinVersion: String
-        get() = notNullSystemProperty("compose.tests.js.compiler.compatible.kotlin.version")
+    val kotlinVersion: String
+        get() = notNullSystemProperty("compose.tests.kotlin.version")
 
     val composeGradlePluginVersion: String
         get() = notNullSystemProperty("compose.tests.compose.gradle.plugin.version")
 
-    val gradleVersionForTests: String?
-        get() = System.getProperty("compose.tests.gradle.version")
+    val gradleVersion: String
+        get() = notNullSystemProperty("compose.tests.gradle.version")
+
+    val agpVersion: String
+        get() = notNullSystemProperty("compose.tests.agp.version")
 
     val gradleConfigurationCache: Boolean
         get() = System.getProperty("compose.tests.gradle.configuration.cache") == "true"

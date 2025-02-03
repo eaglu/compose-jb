@@ -9,19 +9,23 @@ import org.gradle.api.file.*
 import org.gradle.api.provider.ListProperty
 import org.gradle.api.provider.Property
 import org.gradle.api.provider.Provider
+import org.gradle.api.provider.SetProperty
 import org.gradle.api.tasks.*
 import org.gradle.api.tasks.Optional
 import org.gradle.process.ExecResult
 import org.gradle.work.ChangeType
 import org.gradle.work.InputChanges
+import org.jetbrains.compose.desktop.application.dsl.FileAssociation
 import org.jetbrains.compose.desktop.application.dsl.MacOSSigningSettings
 import org.jetbrains.compose.desktop.application.dsl.TargetFormat
 import org.jetbrains.compose.desktop.application.internal.*
+import org.jetbrains.compose.desktop.application.internal.InfoPlistBuilder.InfoPlistValue.*
 import org.jetbrains.compose.desktop.application.internal.files.*
 import org.jetbrains.compose.desktop.application.internal.files.MacJarSignFileCopyingProcessor
 import org.jetbrains.compose.desktop.application.internal.JvmRuntimeProperties
 import org.jetbrains.compose.desktop.application.internal.validation.validate
 import org.jetbrains.compose.internal.utils.*
+import org.jetbrains.kotlin.gradle.internal.ensureParentDirsCreated
 import java.io.*
 import java.nio.file.LinkOption
 import java.util.*
@@ -64,6 +68,12 @@ abstract class AbstractJPackageTask @Inject constructor(
      */
     @get:Input
     val mangleJarFilesNames: Property<Boolean> = objects.notNullProperty(true)
+
+    /**
+     * Indicates that task will get the uber JAR as input.
+     */
+    @get:Input
+    val packageFromUberJar: Property<Boolean> = objects.notNullProperty(false)
 
     @get:InputDirectory
     @get:Optional
@@ -162,6 +172,10 @@ abstract class AbstractJPackageTask @Inject constructor(
     @get:Optional
     val macAppCategory: Property<String?> = objects.nullableProperty()
 
+    @get:Input
+    @get:Optional
+    val macMinimumSystemVersion: Property<String?> = objects.nullableProperty()
+
     @get:InputFile
     @get:Optional
     @get:PathSensitive(PathSensitivity.ABSOLUTE)
@@ -234,6 +248,39 @@ abstract class AbstractJPackageTask @Inject constructor(
     @get:Optional
     val javaRuntimePropertiesFile: RegularFileProperty = objects.fileProperty()
 
+    @get:Input
+    internal val fileAssociations: SetProperty<FileAssociation> = objects.setProperty(FileAssociation::class.java)
+    
+    private val iconMapping by lazy {
+        val icons = fileAssociations.get().mapNotNull { it.iconFile }.distinct()
+        if (icons.isEmpty()) return@lazy emptyMap()
+        val iconTempNames: List<String> = mutableListOf<String>().apply {
+            val usedNames = mutableSetOf("${packageName.get()}.icns")
+            for (icon in icons) {
+                if (!icon.exists()) continue
+                if (usedNames.add(icon.name)) {
+                    add(icon.name)
+                    continue
+                }
+                val nameWithoutExtension = icon.nameWithoutExtension
+                val extension = icon.extension
+                for (n in 1UL..ULong.MAX_VALUE) {
+                    val newName = "$nameWithoutExtension ($n).$extension"
+                    if (usedNames.add(newName)) {
+                        add(newName)
+                        break
+                    }
+                }
+            }
+        }
+        val appDir = destinationDir.ioFile.resolve("${packageName.get()}.app")
+        val iconsDir = appDir.resolve("Contents").resolve("Resources")
+        if (iconsDir.exists()) {
+            iconsDir.deleteRecursively()
+        }
+        icons.zip(iconTempNames) { icon, newName -> icon to iconsDir.resolve(newName) }.toMap()
+    }
+
     private lateinit var jvmRuntimeInfo: JvmRuntimeProperties
 
     @get:Optional
@@ -262,6 +309,9 @@ abstract class AbstractJPackageTask @Inject constructor(
 
     @get:LocalState
     protected val skikoDir: Provider<Directory> = project.layout.buildDirectory.dir("compose/tmp/skiko")
+
+    @get:LocalState
+    protected val propertyFilesDir: Provider<Directory> = project.layout.buildDirectory.dir("compose/tmp/propertyFiles")
 
     @get:Internal
     private val libsDir: Provider<Directory> = workingDir.map {
@@ -319,7 +369,7 @@ abstract class AbstractJPackageTask @Inject constructor(
 
             javaOption("-D$APP_RESOURCES_DIR=${appDir(packagedResourcesDir.ioFile.name)}")
 
-            val mappedJar = libsMapping[launcherMainJar.ioFile]?.singleOrNull()
+            val mappedJar = libsMapping[launcherMainJar.ioFile]?.singleOrNull { it.isJarFile }
                 ?: error("Main jar was not processed correctly: ${launcherMainJar.ioFile}")
             val mainJarPath = mappedJar.normalizedPath(base = libsDir.ioFile)
             cliArg("--main-jar", mainJarPath)
@@ -357,6 +407,33 @@ abstract class AbstractJPackageTask @Inject constructor(
             cliArg("--install-dir", installationPath)
             cliArg("--license-file", licenseFile)
             cliArg("--resource-dir", jpackageResources)
+
+            val propertyFilesDirJava = propertyFilesDir.ioFile
+            fileOperations.clearDirs(propertyFilesDir)
+
+            val fileAssociationFiles = fileAssociations.get()
+                .groupBy { it.extension }
+                .mapValues { (extension, associations) ->
+                    associations.mapIndexed { index, association ->
+                        propertyFilesDirJava.resolve("FA${extension}${if (index > 0) index.toString() else ""}.properties")
+                            .apply {
+                                val withoutIcon = """
+                                    mime-type=${association.mimeType}
+                                    extension=${association.extension}
+                                    description=${association.description}
+                                """.trimIndent()
+                                writeText(
+                                    if (association.iconFile == null) withoutIcon
+                                    else "${withoutIcon}\nicon=${association.iconFile.normalizedPath()}"
+                                )
+                            }
+                    }
+                }.values.flatten()
+
+            for (fileAssociationFile in fileAssociationFiles) {
+                cliArg("--file-associations", fileAssociationFile)
+            }
+
 
             when (currentOS) {
                 OS.Linux -> {
@@ -464,11 +541,14 @@ abstract class AbstractJPackageTask @Inject constructor(
             return targetFile
         }
 
+        // skiko can be bundled to the main uber jar by proguard
+        fun File.isMainUberJar() = packageFromUberJar.get() && name == launcherMainJar.ioFile.name
+
         val outdatedLibs = invalidateMappedLibs(inputChanges)
         for (sourceFile in outdatedLibs) {
             assert(sourceFile.exists()) { "Lib file does not exist: $sourceFile" }
 
-            libsMapping[sourceFile] = if (isSkikoForCurrentOS(sourceFile)) {
+            libsMapping[sourceFile] = if (isSkikoForCurrentOS(sourceFile) || sourceFile.isMainUberJar()) {
                 val unpackedFiles = unpackSkikoForCurrentOS(sourceFile, skikoDir.ioFile, fileOperations)
                 unpackedFiles.map { copyFileToLibsDir(it) }
             } else {
@@ -499,11 +579,12 @@ abstract class AbstractJPackageTask @Inject constructor(
                 .writeToFile(jpackageResources.ioFile.resolve("Info.plist"))
 
             if (macAppStore.orNull == true) {
+                val systemVersion = macMinimumSystemVersion.orNull ?: "10.13"
                 val productDefPlistXml = """
-                    <key>os</key>
-                    <array>
-                        <string>10.13</string>
-                    </array>
+                <key>os</key>
+                <array>
+                <string>$systemVersion</string>
+                </array>
                 """.trimIndent()
                 InfoPlistBuilder(productDefPlistXml)
                     .writeToFile(jpackageResources.ioFile.resolve("product-def.plist"))
@@ -555,6 +636,15 @@ abstract class AbstractJPackageTask @Inject constructor(
 
         macSigner.sign(runtimeDir, runtimeEntitlementsFile, forceEntitlements = true)
         macSigner.sign(appDir, appEntitlementsFile, forceEntitlements = true)
+        
+        if (iconMapping.isNotEmpty()) {
+            for ((originalIcon, newIcon) in iconMapping) {
+                if (originalIcon.exists()) {
+                    newIcon.ensureParentDirsCreated()
+                    originalIcon.copyTo(newIcon)
+                }
+            }
+        }
     }
 
     override fun initState() {
@@ -581,7 +671,8 @@ abstract class AbstractJPackageTask @Inject constructor(
     private fun setInfoPlistValues(plist: InfoPlistBuilder) {
         check(currentOS == OS.MacOS) { "Current OS is not macOS: $currentOS" }
 
-        plist[PlistKeys.LSMinimumSystemVersion] = "10.13"
+        val systemVersion = macMinimumSystemVersion.orNull ?: "10.13"
+        plist[PlistKeys.LSMinimumSystemVersion] = systemVersion
         plist[PlistKeys.CFBundleDevelopmentRegion] = "English"
         plist[PlistKeys.CFBundleAllowMixedLocalizations] = "true"
         val packageName = packageName.get()
@@ -605,6 +696,23 @@ abstract class AbstractJPackageTask @Inject constructor(
             ?: "Copyright (C) $year"
         plist[PlistKeys.NSSupportsAutomaticGraphicsSwitching] = "true"
         plist[PlistKeys.NSHighResolutionCapable] = "true"
+        val fileAssociationMutableSet = fileAssociations.get()
+        if (fileAssociationMutableSet.isNotEmpty()) {
+            plist[PlistKeys.CFBundleDocumentTypes] = fileAssociationMutableSet
+                .groupBy { it.mimeType to it.description }
+                .map { (key, extensions) ->
+                    val (mimeType, description) = key
+                    val iconPath = extensions.firstNotNullOfOrNull { it.iconFile }?.let { iconMapping[it]?.name }
+                    InfoPlistMapValue(
+                        PlistKeys.CFBundleTypeRole to InfoPlistStringValue("Editor"),
+                        PlistKeys.CFBundleTypeExtensions to InfoPlistListValue(extensions.map { InfoPlistStringValue(it.extension) }),
+                        PlistKeys.CFBundleTypeIconFile to InfoPlistStringValue(iconPath ?: "$packageName.icns"),
+                        PlistKeys.CFBundleTypeMIMETypes to InfoPlistStringValue(mimeType),
+                        PlistKeys.CFBundleTypeName to InfoPlistStringValue(description),
+                        PlistKeys.CFBundleTypeOSTypes to InfoPlistListValue(InfoPlistStringValue("****")),
+                    )
+                }
+        }
     }
 }
 

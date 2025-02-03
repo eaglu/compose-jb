@@ -1,112 +1,177 @@
-import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
+import kotlinx.validation.ExperimentalBCVApi
+import org.jetbrains.compose.ExperimentalComposeLibrary
+import org.jetbrains.kotlin.gradle.targets.js.dsl.ExperimentalWasmDsl
 
 plugins {
     kotlin("multiplatform")
     id("org.jetbrains.compose")
+    id("org.jetbrains.kotlin.plugin.compose")
     id("maven-publish")
     id("com.android.library")
+    id("org.jetbrains.kotlinx.binary-compatibility-validator")
 }
-
-val composeVersion = extra["compose.version"] as String
 
 kotlin {
     jvm("desktop")
-    android {
+    androidTarget {
         publishLibraryVariants("release")
+        compilations.all {
+            kotlinOptions {
+                jvmTarget = "11"
+            }
+        }
     }
-    ios()
+    iosX64()
+    iosArm64()
     iosSimulatorArm64()
-    js(IR) {
-        browser()
+    js {
+        browser {
+            testTask(Action {
+                enabled = false
+            })
+        }
+    }
+    @OptIn(ExperimentalWasmDsl::class)
+    wasmJs {
+        browser {
+            testTask(Action {
+                useKarma {
+                    useChromeHeadless()
+                    useConfigDirectory(project.projectDir.resolve("karma.config.d").resolve("wasm"))
+                }
+            })
+        }
+        binaries.executable()
     }
     macosX64()
     macosArm64()
 
+    applyDefaultHierarchyTemplate()
     sourceSets {
+        all {
+            languageSettings {
+                optIn("kotlin.RequiresOptIn")
+                optIn("kotlinx.cinterop.ExperimentalForeignApi")
+                optIn("kotlin.experimental.ExperimentalNativeApi")
+                optIn("org.jetbrains.compose.resources.InternalResourceApi")
+                optIn("org.jetbrains.compose.resources.ExperimentalResourceApi")
+            }
+        }
+
+        //          common
+        //       ┌────┴────┐
+        //    skiko       blocking
+        //      │      ┌─────┴────────┐
+        //  ┌───┴───┬──│────────┐     │
+        //  │      native       │ jvmAndAndroid
+        //  │    ┌───┴───┐      │   ┌───┴───┐
+        // web   ios    macos   desktop    android
+
         val commonMain by getting {
             dependencies {
-                implementation("org.jetbrains.compose.runtime:runtime:$composeVersion")
-                implementation("org.jetbrains.compose.foundation:foundation:$composeVersion")
+                implementation(compose.runtime)
+                implementation(compose.foundation)
+                implementation(libs.kotlinx.coroutines.core)
             }
         }
         val commonTest by getting {
             dependencies {
-                implementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.6.4")
                 implementation(kotlin("test"))
+                implementation(libs.kotlinx.coroutines.test)
+                implementation(compose.material3)
+                @OptIn(ExperimentalComposeLibrary::class)
+                implementation(compose.uiTest)
             }
         }
-        val commonButJSMain by creating {
+        val blockingMain by creating {
             dependsOn(commonMain)
+        }
+        val blockingTest by creating {
+            dependsOn(commonTest)
         }
         val skikoMain by creating {
             dependsOn(commonMain)
         }
-        val jvmAndAndroidMain by creating {
-            dependsOn(commonMain)
+        val skikoTest by creating {
+            dependsOn(commonTest)
         }
-        val nativeMain by creating {
-            dependsOn(commonMain)
+        val jvmAndAndroidMain by creating {
+            dependsOn(blockingMain)
+        }
+        val jvmAndAndroidTest by creating {
+            dependsOn(blockingTest)
         }
         val desktopMain by getting {
             dependsOn(skikoMain)
             dependsOn(jvmAndAndroidMain)
-            dependsOn(commonButJSMain)
         }
         val desktopTest by getting {
+            dependsOn(skikoTest)
+            dependsOn(jvmAndAndroidTest)
             dependencies {
                 implementation(compose.desktop.currentOs)
-                implementation("org.jetbrains.compose.ui:ui-test-junit4:$composeVersion")
-                implementation("org.jetbrains.kotlinx:kotlinx-coroutines-swing:1.6.4")
             }
         }
         val androidMain by getting {
             dependsOn(jvmAndAndroidMain)
-            dependsOn(commonButJSMain)
-        }
-        val androidTest by getting {
             dependencies {
-
+                //it will be called only in android instrumented tests where the library should be available
+                compileOnly(libs.androidx.test.monitor)
             }
         }
-        val iosMain by getting {
-            dependsOn(skikoMain)
-            dependsOn(commonButJSMain)
-            dependsOn(nativeMain)
+        val androidInstrumentedTest by getting {
+            dependsOn(jvmAndAndroidTest)
+            dependencies {
+                implementation(libs.androidx.test.core)
+                implementation(libs.androidx.compose.ui.test)
+                implementation(libs.androidx.compose.ui.test.manifest)
+                implementation(libs.androidx.compose.ui.test.junit4)
+            }
         }
-        val iosTest by getting
-        val iosSimulatorArm64Main by getting
-        iosSimulatorArm64Main.dependsOn(iosMain)
-        val iosSimulatorArm64Test by getting
-        iosSimulatorArm64Test.dependsOn(iosTest)
+        val androidUnitTest by getting {
+            dependsOn(jvmAndAndroidTest)
+        }
+        val nativeMain by getting {
+            dependsOn(skikoMain)
+            dependsOn(blockingMain)
+        }
+        val nativeTest by getting {
+            dependsOn(skikoTest)
+            dependsOn(blockingTest)
+        }
+        val webMain by creating {
+            dependsOn(skikoMain)
+        }
         val jsMain by getting {
-            dependsOn(skikoMain)
+            dependsOn(webMain)
         }
-        val macosMain by creating {
-            dependsOn(skikoMain)
-            dependsOn(commonButJSMain)
-            dependsOn(nativeMain)
+        val wasmJsMain by getting {
+            dependsOn(webMain)
         }
-        val macosX64Main by getting {
-            dependsOn(macosMain)
+        val webTest by creating {
+            dependsOn(skikoTest)
         }
-        val macosArm64Main by getting {
-            dependsOn(macosMain)
+        val jsTest by getting {
+            dependsOn(webTest)
+        }
+        val wasmJsTest by getting {
+            dependsOn(webTest)
         }
     }
 }
 
 android {
-    compileSdk = 33
-    sourceSets["main"].manifest.srcFile("src/androidMain/AndroidManifest.xml")
+    compileSdk = 35
+    namespace = "org.jetbrains.compose.components.resources"
     defaultConfig {
         minSdk = 21
-        targetSdk = 33
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_1_8
-        targetCompatibility = JavaVersion.VERSION_1_8
+        sourceCompatibility = JavaVersion.VERSION_11
+        targetCompatibility = JavaVersion.VERSION_11
     }
+    @Suppress("UnstableApiUsage")
     testOptions {
         managedDevices {
             devices {
@@ -118,20 +183,15 @@ android {
             }
         }
     }
-}
-
-dependencies {
-    //Android integration tests
-    testImplementation("androidx.test:core:1.5.0")
-    androidTestImplementation("androidx.compose.ui:ui-test-manifest:1.3.1")
-    androidTestImplementation("androidx.compose.ui:ui-test:1.3.1")
-    androidTestImplementation("androidx.compose.ui:ui-test-junit4:1.3.1")
-    androidTestImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.6.4")
-}
-
-// TODO it seems that argument isn't applied to the common sourceSet. Figure out why
-tasks.withType<KotlinCompile>().configureEach {
-    kotlinOptions.freeCompilerArgs += "-Xopt-in=kotlin.RequiresOptIn"
+    sourceSets {
+        val commonTestResources = "src/commonTest/resources"
+        named("androidTest") {
+            resources.srcDir(commonTestResources)
+            assets.srcDir("src/androidInstrumentedTest/assets")
+        }
+        named("test") { resources.srcDir(commonTestResources) }
+        named("main") { manifest.srcFile("src/androidMain/AndroidManifest.xml") }
+    }
 }
 
 configureMavenPublication(
@@ -139,3 +199,17 @@ configureMavenPublication(
     artifactId = "components-resources",
     name = "Resources for Compose JB"
 )
+
+apiValidation {
+    @OptIn(ExperimentalBCVApi::class)
+    klib { enabled = true }
+    nonPublicMarkers.add("org.jetbrains.compose.resources.InternalResourceApi")
+}
+
+//utility task to generate CLDRPluralRuleLists.kt file by 'CLDRPluralRules/plurals.xml'
+tasks.register<GeneratePluralRuleListsTask>("generatePluralRuleLists") {
+    val projectDir = project.layout.projectDirectory
+    pluralsFile = projectDir.file("CLDRPluralRules/plurals.xml")
+    outputFile = projectDir.file("src/commonMain/kotlin/org/jetbrains/compose/resources/plural/CLDRPluralRuleLists.kt")
+    samplesOutputFile = projectDir.file("src/commonTest/kotlin/org/jetbrains/compose/resources/CLDRPluralRuleLists.test.kt")
+}

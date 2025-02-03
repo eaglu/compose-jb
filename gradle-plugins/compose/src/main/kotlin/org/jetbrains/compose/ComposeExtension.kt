@@ -10,7 +10,9 @@ import org.gradle.api.model.ObjectFactory
 import org.gradle.api.plugins.ExtensionAware
 import org.gradle.api.provider.ListProperty
 import org.gradle.api.provider.Property
+import org.gradle.api.provider.SetProperty
 import org.jetbrains.compose.internal.utils.nullableProperty
+import org.jetbrains.kotlin.gradle.plugin.KotlinPlatformType
 import javax.inject.Inject
 
 abstract class ComposeExtension @Inject constructor(
@@ -29,6 +31,7 @@ abstract class ComposeExtension @Inject constructor(
      * ```
      * (see available versions here: https://developer.android.com/jetpack/androidx/releases/compose-kotlin#pre-release_kotlin_compatibility)
      */
+    @Deprecated("Since Kotlin $newCompilerIsAvailableVersion Compose Compiler configuration is moved to the \"$newComposeCompilerKotlinSupportPluginId\" plugin")
     val kotlinCompilerPlugin: Property<String?> = objects.nullableProperty()
 
     /**
@@ -39,7 +42,21 @@ abstract class ComposeExtension @Inject constructor(
      * See all available arguments here:
      * https://github.com/androidx/androidx/blob/androidx-main/compose/compiler/compiler-hosted/src/main/java/androidx/compose/compiler/plugins/kotlin/ComposePlugin.kt
      */
+    @Deprecated("Since Kotlin $newCompilerIsAvailableVersion Compose Compiler configuration is moved to the \"$newComposeCompilerKotlinSupportPluginId\" plugin")
     val kotlinCompilerPluginArgs: ListProperty<String> = objects.listProperty(String::class.java)
+
+    /**
+     * A set of kotlin platform types to which the Compose plugin will be applied.
+     * By default, it contains all KotlinPlatformType values.
+     * It can be used to disable the Compose plugin for one or more targets:
+     * ```
+     * platformTypes.set(platformTypes.get() - KotlinPlatformType.native)
+     * ```
+     */
+    @Deprecated("Since Kotlin $newCompilerIsAvailableVersion Compose Compiler configuration is moved to the \"$newComposeCompilerKotlinSupportPluginId\" plugin")
+    val platformTypes: SetProperty<KotlinPlatformType> = objects.setProperty(KotlinPlatformType::class.java).apply {
+        set(KotlinPlatformType.values().toMutableSet())
+    }
 
     val dependencies = ComposePlugin.Dependencies(project)
 }

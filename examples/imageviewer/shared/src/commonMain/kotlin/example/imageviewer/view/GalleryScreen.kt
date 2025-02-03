@@ -12,7 +12,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.LazyGridScope
 import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.PagerState
@@ -31,11 +31,15 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
-import example.imageviewer.*
+import example.imageviewer.ExternalImageViewerEvent
+import example.imageviewer.LocalImageProvider
+import example.imageviewer.LocalInternalEvents
+import example.imageviewer.LocalNotification
 import example.imageviewer.icon.IconMenu
 import example.imageviewer.icon.IconVisibility
-import example.imageviewer.model.*
+import example.imageviewer.model.PictureData
 import example.imageviewer.style.ImageviewerColors
 import kotlinx.coroutines.launch
 import kotlin.math.absoluteValue
@@ -47,16 +51,20 @@ enum class GalleryStyle {
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-internal fun GalleryScreen(
+fun GalleryScreen(
     pictures: SnapshotStateList<PictureData>,
     selectedPictureIndex: MutableState<Int>,
-    onClickPreviewPicture: (PictureData) -> Unit,
+    onClickPreviewPicture: (index: Int) -> Unit,
     onMakeNewMemory: () -> Unit
 ) {
     val imageProvider = LocalImageProvider.current
     val viewScope = rememberCoroutineScope()
 
-    val pagerState = rememberPagerState(initialPage = selectedPictureIndex.value)
+    val pagerState = rememberPagerState(
+        initialPage = selectedPictureIndex.value,
+        initialPageOffsetFraction = 0f,
+        pageCount = { pictures.size },
+    )
     LaunchedEffect(pagerState) {
         // Subscribe to page changes
         snapshotFlow { pagerState.currentPage }.collect { page ->
@@ -113,17 +121,17 @@ internal fun GalleryScreen(
                 Box(
                     Modifier.fillMaxSize()
                         .clickable {
-                            onClickPreviewPicture(pictures[pagerState.currentPage])
+                            onClickPreviewPicture(pagerState.currentPage)
                         }
                 ) {
-                    HorizontalPager(pictures.size, state = pagerState) { idx ->
-                        val picture = pictures[idx]
+                    HorizontalPager(state = pagerState) { index ->
+                        val picture = pictures[index]
                         var image: ImageBitmap? by remember(picture) { mutableStateOf(null) }
                         LaunchedEffect(picture) {
                             image = imageProvider.getImage(picture)
                         }
                         if (image != null) {
-                            Box(Modifier.fillMaxSize().animatePageChanges(pagerState, idx)) {
+                            Box(Modifier.fillMaxSize().animatePageChanges(pagerState, index)) {
                                 Image(
                                     bitmap = image!!,
                                     contentDescription = null,
@@ -139,7 +147,10 @@ internal fun GalleryScreen(
             TopLayout(
                 alignLeftContent = {},
                 alignRightContent = {
-                    CircularButton(imageVector = IconMenu) {
+                    CircularButton(
+                        imageVector = IconMenu,
+                        modifier = Modifier.testTag("toggleGalleryStyleButton")
+                    ) {
                         galleryStyle = when (galleryStyle) {
                             GalleryStyle.SQUARES -> GalleryStyle.LIST
                             GalleryStyle.LIST -> GalleryStyle.SQUARES
@@ -155,7 +166,6 @@ internal fun GalleryScreen(
                     pagerState = pagerState,
                     onSelect = { selectPicture(it) },
                 )
-
                 GalleryStyle.LIST -> ListGalleryView(
                     pictures = pictures,
                     onSelect = { selectPicture(it) },
@@ -171,31 +181,40 @@ internal fun GalleryScreen(
     }
 }
 
+@Composable
+expect fun GalleryLazyVerticalGrid(
+    columns: GridCells,
+    modifier: Modifier,
+    verticalArrangement: Arrangement.Vertical,
+    horizontalArrangement: Arrangement.Horizontal,
+    content: LazyGridScope.() -> Unit
+)
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun SquaresGalleryView(
     images: List<PictureData>,
     pagerState: PagerState,
-    onSelect: (Int) -> Unit,
+    onSelect: (index: Int) -> Unit,
 ) {
-    LazyVerticalGrid(
-        modifier = Modifier.padding(top = 4.dp),
+    GalleryLazyVerticalGrid(
         columns = GridCells.Adaptive(minSize = 130.dp),
+        modifier = Modifier.padding(top = 4.dp).testTag("squaresGalleryView"),
         verticalArrangement = Arrangement.spacedBy(1.dp),
         horizontalArrangement = Arrangement.spacedBy(1.dp)
     ) {
-        itemsIndexed(images) { idx, picture ->
+        itemsIndexed(images) { index, picture ->
             SquareThumbnail(
                 picture = picture,
-                onClick = { onSelect(idx) },
-                isHighlighted = pagerState.targetPage == idx
+                onClick = { onSelect(index) },
+                isHighlighted = pagerState.targetPage == index
             )
         }
     }
 }
 
 @Composable
-internal fun SquareThumbnail(
+fun SquareThumbnail(
     picture: PictureData,
     isHighlighted: Boolean,
     onClick: () -> Unit
@@ -244,12 +263,12 @@ internal fun SquareThumbnail(
 @Composable
 private fun ListGalleryView(
     pictures: List<PictureData>,
-    onSelect: (Int) -> Unit,
-    onFullScreen: (PictureData) -> Unit,
+    onSelect: (index: Int) -> Unit,
+    onFullScreen: (index: Int) -> Unit,
 ) {
     val notification = LocalNotification.current
     ScrollableColumn(
-        modifier = Modifier.fillMaxSize()
+        modifier = Modifier.fillMaxSize().testTag("listGalleryView")
     ) {
         Spacer(modifier = Modifier.height(10.dp))
         for (p in pictures.withIndex()) {
@@ -259,7 +278,7 @@ private fun ListGalleryView(
                     onSelect(p.index)
                 },
                 onClickFullScreen = {
-                    onFullScreen(p.value)
+                    onFullScreen(p.index)
                 },
                 onClickInfo = {
                     notification.notifyImageData(p.value)

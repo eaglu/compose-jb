@@ -5,37 +5,91 @@
 
 package org.jetbrains.compose.test.tests.integration
 
+import org.gradle.internal.impldep.junit.framework.TestCase.assertEquals
+import org.gradle.internal.impldep.junit.framework.TestCase.assertTrue
+import org.gradle.util.GradleVersion
 import org.jetbrains.compose.desktop.ui.tooling.preview.rpc.PreviewLogger
 import org.jetbrains.compose.desktop.ui.tooling.preview.rpc.RemoteConnection
 import org.jetbrains.compose.desktop.ui.tooling.preview.rpc.receiveConfigFromGradle
-import org.jetbrains.compose.test.utils.*
-
+import org.jetbrains.compose.internal.Version
+import org.jetbrains.compose.test.utils.GradlePluginTestBase
+import org.jetbrains.compose.test.utils.checkExists
+import org.jetbrains.compose.test.utils.checks
+import org.junit.jupiter.api.Assumptions
+import org.junit.jupiter.api.Test
 import java.net.ServerSocket
 import java.net.Socket
 import java.net.SocketTimeoutException
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.concurrent.thread
-import org.junit.jupiter.api.Test
+import kotlin.test.assertFalse
 
 class GradlePluginTest : GradlePluginTestBase() {
     @Test
-    fun skikoWasm() = with(testProject(TestProjects.skikoWasm)) {
+    fun skikoWasm() = with(
+        testProject(
+            "misc/skikoWasm",
+            // TODO: enable the configuration cache after moving all test projects to kotlin 2.0 or newer
+            defaultTestEnvironment.copy(useGradleConfigurationCache = false)
+        )
+    ) {
+        fun jsCanvasEnabled(value: Boolean) {
+            modifyGradleProperties { put("org.jetbrains.compose.experimental.jscanvas.enabled", value.toString()) }
+
+        }
+
+        jsCanvasEnabled(false)
+        gradleFailure(":build").checks {
+            check.logContains("ERROR: Compose targets '[jscanvas]' are experimental and may have bugs!")
+        }
+
+        jsCanvasEnabled(true)
         gradle(":build").checks {
-            check.taskSuccessful(":unpackSkikoWasmRuntimeJs")
+            check.taskSuccessful(":unpackSkikoWasmRuntime")
+            check.taskSuccessful(":processSkikoRuntimeForKWasm")
             check.taskSuccessful(":compileKotlinJs")
+            check.taskSuccessful(":compileKotlinWasmJs")
+            check.taskSuccessful(":wasmJsBrowserDistribution")
+            check.taskSuccessful(":jsBrowserDistribution")
+
+            file("./build/dist/wasmJs/productionExecutable").apply {
+                checkExists()
+                assertTrue(isDirectory)
+                val distributionFiles = listFiles()!!.map { it.name }.toList()
+                assertFalse(
+                    distributionFiles.contains("skiko.wasm"),
+                    "skiko.wasm is probably a duplicate"
+                )
+                // one file is the app wasm file and another one is skiko wasm file with a mangled name
+                assertEquals(2, distributionFiles.filter { it.endsWith(".wasm") }.size)
+            }
+
+            file("./build/dist/js/productionExecutable").apply {
+                checkExists()
+                assertTrue(isDirectory)
+                val distributionFiles = listFiles()!!.map { it.name }.toList()
+                assertTrue(distributionFiles.contains("skiko.wasm"))
+                assertTrue(distributionFiles.contains("skiko.js"))
+                assertFalse(this.resolve("skiko.js").readText().contains("skiko.js is redundant"))
+            }
+        }
+    }
+
+    @Test
+    fun newAndroidTarget() {
+        Assumptions.assumeTrue(defaultTestEnvironment.parsedGradleVersion >= GradleVersion.version("8.10.2"))
+        Assumptions.assumeTrue(Version.fromString(defaultTestEnvironment.agpVersion) >= Version.fromString("8.8.0-alpha08"))
+        with(testProject("application/newAndroidTarget")) {
+            gradle("build", "--dry-run").checks {
+            }
         }
     }
 
     @Test
     fun jsMppIsNotBroken() =
         with(
-            testProject(
-                TestProjects.jsMpp,
-                testEnvironment = defaultTestEnvironment.copy(
-                    kotlinVersion = TestProperties.composeJsCompilerCompatibleKotlinVersion
-                )
-            )
+            testProject("misc/jsMpp")
         ) {
             gradle(":compileKotlinJs").checks {
                 check.taskSuccessful(":compileKotlinJs")
@@ -91,16 +145,16 @@ class GradlePluginTest : GradlePluginTestBase() {
             connectionThread.join(5000)
         }
 
-        val expectedReceivedConfigCount = 2
+        val expectedReceivedConfigCount = 3
         val actualReceivedConfigCount = receivedConfigCount.get()
-        check(actualReceivedConfigCount == 2) {
+        check(actualReceivedConfigCount == expectedReceivedConfigCount) {
             "Expected to receive $expectedReceivedConfigCount preview configs, got $actualReceivedConfigCount"
         }
     }
 
     private fun testConfigureDesktopPreviewImpl(port: Int) {
         check(port > 0) { "Invalid port: $port" }
-        with(testProject(TestProjects.jvmPreview)) {
+        with(testProject("misc/jvmPreview")) {
             val portProperty = "-Pcompose.desktop.preview.ide.port=$port"
             val previewTargetProperty = "-Pcompose.desktop.preview.target=PreviewKt.ExamplePreview"
             val jvmTask = ":jvm:configureDesktopPreview"
@@ -111,6 +165,11 @@ class GradlePluginTest : GradlePluginTestBase() {
             val mppTask = ":mpp:configureDesktopPreviewDesktop"
             gradle(mppTask, portProperty, previewTargetProperty).checks {
                 check.taskSuccessful(mppTask)
+            }
+
+            val commonTask = ":common:configureDesktopPreviewDesktop"
+            gradle(commonTask, portProperty, previewTargetProperty).checks {
+                check.taskSuccessful(commonTask)
             }
         }
     }

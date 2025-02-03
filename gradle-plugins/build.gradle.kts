@@ -1,11 +1,12 @@
-import com.gradle.publish.PluginBundleExtension
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import org.jetbrains.kotlin.gradle.dsl.KotlinVersion
 import org.jetbrains.kotlin.gradle.tasks.KotlinJvmCompile
 
 plugins {
-    val kotlinVersion = "1.7.20"
-    kotlin("jvm") version kotlinVersion apply false
-    kotlin("plugin.serialization") version kotlinVersion apply false
-    id("com.gradle.plugin-publish") version "0.17.0" apply false
+    alias(libs.plugins.kotlin.jvm) apply false
+    alias(libs.plugins.publish.plugin) apply false
+    alias(libs.plugins.shadow.jar) apply false
+    alias(libs.plugins.download) apply false
 }
 
 subprojects {
@@ -14,13 +15,14 @@ subprojects {
 
     repositories {
         mavenCentral()
+        google()
         mavenLocal()
     }
 
     plugins.withId("java") {
         configureIfExists<JavaPluginExtension> {
-            sourceCompatibility = JavaVersion.VERSION_1_8
-            targetCompatibility = JavaVersion.VERSION_1_8
+            sourceCompatibility = JavaVersion.VERSION_11
+            targetCompatibility = JavaVersion.VERSION_11
 
             withJavadocJar()
             withSourcesJar()
@@ -29,10 +31,13 @@ subprojects {
 
     plugins.withId("org.jetbrains.kotlin.jvm") {
         tasks.withType(KotlinJvmCompile::class).configureEach {
-            // must be set to a language version of the kotlin compiler & runtime,
-            // which is bundled to the oldest supported Gradle
-            kotlinOptions.languageVersion = "1.5"
-            kotlinOptions.apiVersion = "1.5"
+            compilerOptions {
+                // must be set to a language version of the kotlin compiler & runtime,
+                // which is bundled to the oldest supported Gradle
+                languageVersion.set(KotlinVersion.KOTLIN_1_5)
+                apiVersion.set(KotlinVersion.KOTLIN_1_5)
+                jvmTarget.set(JvmTarget.JVM_11)
+            }
         }
     }
 
@@ -101,20 +106,18 @@ fun Project.configureMavenPublication(
     }
 }
 
+@Suppress("UnstableApiUsage")
 fun Project.configureGradlePlugin(
     publicationConfig: MavenPublicationConfigExtension,
     gradlePluginConfig: GradlePluginConfigExtension
 ) {
-    // metadata for gradle plugin portal (relates to pluginBundle extension block from com.gradle.plugin-publish)
-    configureIfExists<PluginBundleExtension> {
-        vcsUrl = BuildProperties.vcs
-        website = BuildProperties.website
-        description = publicationConfig.description
-        tags = gradlePluginConfig.pluginPortalTags
-    }
-
     // gradle plugin definition (relates to gradlePlugin extension block from java-gradle-plugin)
+    // and metadata for gradle plugin portal (relates to pluginBundle extension block from com.gradle.plugin-publish)
     configureIfExists<GradlePluginDevelopmentExtension> {
+        vcsUrl.set(BuildProperties.vcs)
+        website.set(BuildProperties.website)
+        description = publicationConfig.description
+
         plugins {
             create("gradlePlugin") {
                 id = gradlePluginConfig.pluginId
@@ -122,13 +125,17 @@ fun Project.configureGradlePlugin(
                 description = publicationConfig.description
                 implementationClass = gradlePluginConfig.implementationClass
                 version = project.version
+                tags.set(gradlePluginConfig.pluginPortalTags)
             }
         }
     }
 }
 
 tasks.register("publishToMavenLocal") {
+    val publishToMavenLocal = this
     for (subproject in subprojects) {
-        dependsOn(subproject.tasks.named("publishToMavenLocal"))
+        subproject.plugins.withId("maven-publish") {
+            publishToMavenLocal.dependsOn("${subproject.path}:publishToMavenLocal")
+        }
     }
 }

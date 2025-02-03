@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.CircularProgressIndicator
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -33,12 +34,10 @@ import example.imageviewer.icon.IconPhotoCamera
 import example.imageviewer.model.GpsPosition
 import example.imageviewer.model.PictureData
 import example.imageviewer.model.createCameraPictureData
+import imageviewer.shared.generated.resources.Res
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import org.jetbrains.compose.resources.ExperimentalResourceApi
-import org.jetbrains.compose.resources.resource
 import java.nio.ByteBuffer
-import java.util.*
 import java.util.concurrent.Executors
 import kotlin.coroutines.resume
 import kotlin.coroutines.suspendCoroutine
@@ -48,7 +47,7 @@ private val executor = Executors.newSingleThreadExecutor()
 
 @OptIn(ExperimentalPermissionsApi::class)
 @Composable
-internal actual fun CameraView(
+actual fun CameraView(
     modifier: Modifier,
     onCapture: (picture: PictureData.Camera, image: PlatformStorableImage) -> Unit
 ) {
@@ -68,7 +67,6 @@ internal actual fun CameraView(
     }
 }
 
-@OptIn(ExperimentalResourceApi::class)
 @SuppressLint("MissingPermission")
 @Composable
 private fun CameraWithGrantedPermission(
@@ -78,11 +76,12 @@ private fun CameraWithGrantedPermission(
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val viewScope = rememberCoroutineScope()
+    var cameraProvider: ProcessCameraProvider? by remember { mutableStateOf(null) }
 
     val preview = Preview.Builder().build()
     val previewView = remember { PreviewView(context) }
     val imageCapture: ImageCapture = remember { ImageCapture.Builder().build() }
-    var isFrontCamera by remember { mutableStateOf(false) }
+    var isFrontCamera by rememberSaveable { mutableStateOf(false) }
     val cameraSelector = remember(isFrontCamera) {
         val lensFacing =
             if (isFrontCamera) {
@@ -95,16 +94,22 @@ private fun CameraWithGrantedPermission(
             .build()
     }
 
+    DisposableEffect(Unit) {
+        onDispose {
+            cameraProvider?.unbindAll()
+        }
+    }
+
     LaunchedEffect(isFrontCamera) {
-        val cameraProvider = suspendCoroutine<ProcessCameraProvider> { continuation ->
+        cameraProvider = suspendCoroutine<ProcessCameraProvider> { continuation ->
             ProcessCameraProvider.getInstance(context).also { cameraProvider ->
                 cameraProvider.addListener({
                     continuation.resume(cameraProvider.get())
                 }, executor)
             }
         }
-        cameraProvider.unbindAll()
-        cameraProvider.bindToLifecycle(
+        cameraProvider?.unbindAll()
+        cameraProvider?.bindToLifecycle(
             lifecycleOwner,
             cameraSelector,
             preview,
@@ -168,7 +173,7 @@ private fun CameraWithGrantedPermission(
                 delay(5000)
                 if (capturePhotoStarted) {
                     addLocationInfoAndReturnResult(
-                        resource("android-emulator-photo.jpg").readBytes().toImageBitmap()
+                        Res.readBytes("files/android-emulator-photo.jpg").toImageBitmap()
                     )
                 }
             }

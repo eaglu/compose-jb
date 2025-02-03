@@ -1,5 +1,6 @@
 plugins {
     kotlin("multiplatform")
+    kotlin("plugin.compose")
     id("org.jetbrains.compose")
 }
 
@@ -12,12 +13,10 @@ kotlin {
         val jsMain by getting  {
             dependencies {
                 implementation(project(":shared"))
+                implementation(compose.ui)
+                implementation(compose.foundation)
             }
         }
     }
-}
-
-compose.experimental {
-    web.application {}
 }
 

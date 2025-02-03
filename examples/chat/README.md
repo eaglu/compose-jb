@@ -9,7 +9,7 @@ Example can run on Android, iOS, desktop or in a browser.
 
 ## Setting up your development environment
 
-To setup the environment, please consult these [instructions](https://github.com/JetBrains/compose-multiplatform-template#setting-up-your-development-environment).
+To setup the environment, please consult these [instructions](https://www.jetbrains.com/help/kotlin-multiplatform-dev/compose-multiplatform-setup.html).
 
 ## How to run 
 
@@ -20,10 +20,6 @@ Choose a run configuration for an appropriate target in Android Studio and run i
 ## Run on desktop via Gradle
 
 `./gradlew desktopApp:run`
-
-## Run JS in browser with WebAssembly Skia via Gradle
-
-`./gradlew jsApp:jsBrowserDevelopmentRun`
 
 ### Run MacOS via Gradle:
 - on Intel CPU: `./gradlew :shared:runDebugExecutableMacosX64`
